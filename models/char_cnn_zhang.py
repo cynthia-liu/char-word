@@ -1,5 +1,5 @@
 from keras.models import Model
-from keras.layers import Input, Dense, Flatten
+from keras.layers import Input, Dense, Flatten, LSTM
 from keras.layers import Convolution1D
 from keras.layers import MaxPooling1D
 from keras.layers import Embedding
@@ -51,10 +51,14 @@ class CharCNNZhang(object):
         Returns: None
 
         """
-        # Input layer
-        inputs = Input(shape=(self.input_size,), name='sent_input', dtype='int64')
-        # Embedding layers
-        x = Embedding(self.alphabet_size + 1, self.embedding_size, input_length=self.input_size)(inputs)
+        # Input first layer
+        char_inputs = Input(shape=(self.input_size,), name='sent_char_input', dtype='int64')
+        # Input second layer
+        word_inputs = input(shape=(500, 200), name='sent_word_input', dtype='float')
+        # Embedding first layers
+        y = Embedding(self.alphabet_size + 1, self.embedding_size, input_length=self.input_size)(char_inputs)
+        # Concat two layers
+        x = keras.layers.concatenate([y, word_inputs], axis=1)
         # Convolution layers
         for cl in self.conv_layers:
             x = Convolution1D(cl[0], cl[1])(x)
@@ -70,22 +74,25 @@ class CharCNNZhang(object):
         # Output layer
         predictions = Dense(self.num_of_classes, activation='softmax')(x)
         # Build and compile model
-        model = Model(inputs=inputs, outputs=predictions)
-        model.compile(optimizer=self.optimizer, loss=self.loss)
+        model = Model(inputs=[char_inputs, word_inputs], outputs=predictions)
+        model.compile(optimizer=self.optimizer, loss=self.loss, metrics=['accuracy'])
         self.model = model
         print("CharCNNZhang model built: ")
         self.model.summary()
 
-    def train(self, training_inputs, training_labels,
-              validation_inputs, validation_labels,
+    def train(self, training_char_inputs, training_word_inputs,
+              validation_char_inputs, validation_word_inputs,
+              training_labels, validation_labels,
               epochs, batch_size, checkpoint_every=100):
         """
         Training function
 
         Args:
-            training_inputs (numpy.ndarray): Training set inputs
+            training_char_inputs (numpy.ndarray): Training set char inputs
+            training_word_inputs (numpy.ndarray): Training set word inputs
             training_labels (numpy.ndarray): Training set labels
-            validation_inputs (numpy.ndarray): Validation set inputs
+            validation_char_inputs (numpy.ndarray): Validation set char inputs
+            validation_word_inputs (numpy.ndarray): Validation set word inputs
             validation_labels (numpy.ndarray): Validation set labels
             epochs (int): Number of training epochs
             batch_size (int): Batch size
@@ -101,19 +108,20 @@ class CharCNNZhang(object):
                                   embeddings_layer_names=None)
         # Start training
         print("Training CharCNNZhang model: ")
-        self.model.fit(training_inputs, training_labels,
-                       validation_data=(validation_inputs, validation_labels),
+        self.model.fit([training_char_inputs, training_word_inputs], training_labels,
+                       validation_data=([validation_char_inputs, validation_word_inputs], validation_labels),
                        epochs=epochs,
                        batch_size=batch_size,
-                       verbose=2,
+                       verbose=1,
                        callbacks=[tensorboard])
 
-    def test(self, testing_inputs, testing_labels, batch_size):
+    def test(self, testing_char_inputs, testing_word_input, testing_labels, batch_size):
         """
         Testing function
 
         Args:
-            testing_inputs (numpy.ndarray): Testing set inputs
+            testing_char_inputs (numpy.ndarray): Testing set char inputs
+            testing_word_input (numpy.ndarray): Testing set word inputs
             testing_labels (numpy.ndarray): Testing set labels
             batch_size (int): Batch size
 
@@ -121,5 +129,7 @@ class CharCNNZhang(object):
 
         """
         # Evaluate inputs
-        self.model.evaluate(testing_inputs, testing_labels, batch_size=batch_size, verbose=1)
-        # self.model.predict(testing_inputs, batch_size=batch_size, verbose=1)
+        scores = self.model.evaluate([testing_char_inputs, testing_word_input],
+                                     testing_labels, batch_size=batch_size, verbose=1)
+        # self.model.predict([testing_char_inputs,testing_word_input], batch_size=batch_size, verbose=1)
+        print("Accuracy: %.2f%%" % (scores[1] * 100))
