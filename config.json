@@ -2,19 +2,19 @@
   "notes": "default",
   "data": {
     "alphabet": "abcdefghijklmnopqrstuvwxyz",
-    "alphabet_size": 25,
-    "input_size": 2000,
+    "alphabet_size": 26,
+    "input_size": 3000,
     "num_of_classes": 20
   },
   "model": "char_cnn_zhang",
   "training": {
-    "epochs": 200,
-    "batch_size": 64,
+    "epochs": 20,
+    "batch_size": 128,
     "evaluate_every": 100,
     "checkpoint_every": 100
   },
   "char_cnn_zhang": {
-    "embedding_size": 256,
+    "embedding_size": 200,
     "conv_layers": [
       [
         256,
@@ -52,7 +52,7 @@
       1024
     ],
     "threshold": 1e-6,
-    "dropout_p": 0.5,
+    "dropout_p": 0.2,
     "optimizer": "adam",
     "loss": "categorical_crossentropy"
   },

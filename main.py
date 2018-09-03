@@ -12,6 +12,8 @@ import re
 from models.char_cnn_zhang import CharCNNZhang
 from models.char_cnn_kim import CharCNNKim
 from pyspark import SparkConf, SparkContext
+from pyspark.sql import SparkSession
+import pandas as pd
 
 tf.flags.DEFINE_string("model", "char_cnn_zhang",
                        "Specifies which model to use: char_cnn_zhang or char_cnn_kim")
@@ -99,24 +101,25 @@ def get_glove(base_dir="./data/news20", dim=100):
 
 
 def str_to_indexes(s):
-    max_length = min(len(s), 1000)
-    str2idx = np.zeros(1000, dtype='int64')
+    max_length = min(len(s), 3000)
+    str2idx = np.zeros(3000, dtype='int64')
     for i in range(0, max_length):
         a = s[i]
-        if a in dict:
-            str2idx[i - 1] = dicts[a]
+        if a in dicts:
+            str2idx[i] = dicts[a]
     return str2idx
 
 
 def get_all_data(data):
     data_size = len(data)
+    print(data_size)
     start_index = 0
     end_index = data_size
     batch_texts = data[start_index:end_index]
     batch_indices = []
     for s in batch_texts:
         batch_indices.append(str_to_indexes(s))
-    return np.asarray(batch_indices, dtype='int64')
+    return np.array(batch_indices, dtype='int64')
 
 
 if __name__ == "__main__":
@@ -125,6 +128,7 @@ if __name__ == "__main__":
 
     Conf = SparkConf().setMaster("local").setAppName("My App")
     sc = SparkContext(conf=Conf)
+    spark = SparkSession(sc)
 
     texts = get_news20(base_dir="/tmp/text_data")
     text_data_rdd = sc.parallelize(texts, 4)
@@ -143,17 +147,24 @@ if __name__ == "__main__":
     padded_tokens_rdd = tokens_rdd.map(lambda tokens_label:
                                        (pad(tokens_label[0], "##", 500), tokens_label[1]))
     train_rdd_pre, val_rdd_pre = padded_tokens_rdd.randomSplit([0.80, 0.20])
+    train_df = train_rdd_pre.toDF().toPandas()
+    val_df = val_rdd_pre.toDF().toPandas()
 
     one_hot = np.eye(20, dtype='int64')
 
     # train word
-    train_vector_rdd = train_rdd_pre.map(lambda tokens_label:
-                                         ([to_vec(w, filtered_word2vec_broadcast.value, 200)
-                                           for w in tokens_label[0]]))
-    training_word = train_vector_rdd.map(lambda vectors_label: to_sample(vectors_label, 200)).collect()
+    train_word = train_df['_1'].values
+    training_word = []
+    for word in train_word:
+        vector = []
+        for w in word:
+            ve = to_vec(w, filtered_word2vec_broadcast.value, 200)
+            vector.append(ve)
+        training_word.append(vector)
+    training_word = np.array(training_word, dtype='float')
 
     # train label
-    train_label = train_rdd_pre.map(lambda p: p[1]).collect()
+    train_label = train_df['_2'].values
     classes_1 = []
     for c in train_label:
         c = int(c) - 1
@@ -161,13 +172,18 @@ if __name__ == "__main__":
     training_label = np.array(classes_1)
 
     # val word
-    val_vector_rdd = val_rdd_pre.map(lambda tokens_label:
-                                     ([to_vec(w, filtered_word2vec_broadcast.value, 200)
-                                       for w in tokens_label[0]]))
-    validation_word = val_vector_rdd.map(lambda vectors_label: to_sample(vectors_label, 200)).collect()
+    val_word = val_df['_1'].values
+    validation_word = []
+    for word in val_word:
+        vector = []
+        for w in word:
+            ve = to_vec(w, filtered_word2vec_broadcast.value, 200)
+            vector.append(ve)
+        validation_word.append(vector)
+    validation_word = np.array(validation_word, dtype='float')
 
     # val label
-    val_label = val_rdd_pre.map(lambda p: p[1]).collect()
+    val_label = val_df['_2'].values
     classes_2 = []
     for d in val_label:
         d = int(d) - 1
@@ -175,11 +191,21 @@ if __name__ == "__main__":
     validation_label = np.array(classes_2)
 
     # train char
-    train_char = train_rdd_pre.map(lambda p: ''.join(p[0])).collect()
+    train_char = []
+    for d in train_word:
+        char = ''
+        for word in d:
+            char += word
+        train_char.append(char)
     training_char = get_all_data(train_char)
 
     # val char
-    val_char = val_rdd_pre.map(lambda p: ''.join(p[0])).collect()
+    val_char = []
+    for d in val_word:
+        char = ''
+        for word in d:
+            char += word
+        val_char.append(char)
     validation_char = get_all_data(val_char)
 
     # Load model configurations and build model
@@ -205,9 +231,11 @@ if __name__ == "__main__":
                              optimizer=config["char_cnn_zhang"]["optimizer"],
                              loss=config["char_cnn_zhang"]["loss"])
     # Train model
-    model.train(training_inputs=[training_char, training_word],
+    model.train(training_char_inputs=training_char,
+                training_word_inputs=training_word,
                 training_labels=training_label,
-                validation_inputs=[validation_char, validation_word],
+                validation_char_inputs=validation_char,
+                validation_word_inputs=validation_word,
                 validation_labels=validation_label,
                 epochs=config["training"]["epochs"],
                 batch_size=config["training"]["batch_size"],

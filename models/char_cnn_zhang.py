@@ -5,6 +5,7 @@ from keras.layers import MaxPooling1D
 from keras.layers import Embedding
 from keras.layers import ThresholdedReLU
 from keras.layers import Dropout
+from keras.layers import Concatenate
 from keras.callbacks import TensorBoard
 
 
@@ -54,17 +55,18 @@ class CharCNNZhang(object):
         # Input first layer
         char_inputs = Input(shape=(self.input_size,), name='sent_char_input', dtype='int64')
         # Input second layer
-        word_inputs = input(shape=(500, 200), name='sent_word_input', dtype='float')
+        word_inputs = Input(shape=(500, 200), name='sent_word_input', dtype='float')
         # Embedding first layers
         y = Embedding(self.alphabet_size + 1, self.embedding_size, input_length=self.input_size)(char_inputs)
         # Concat two layers
-        x = keras.layers.concatenate([y, word_inputs], axis=1)
+        x = Concatenate(axis=1)([y, word_inputs])
         # Convolution layers
         for cl in self.conv_layers:
             x = Convolution1D(cl[0], cl[1])(x)
             x = ThresholdedReLU(self.threshold)(x)
             if cl[2] != -1:
                 x = MaxPooling1D(cl[2])(x)
+        x = LSTM(256, dropout_W=0.2, dropout_U=0.2, input_shape=(3500, 200), return_sequences=True)(x)
         x = Flatten()(x)
         # Fully connected layers
         for fl in self.fully_connected_layers:
@@ -80,9 +82,8 @@ class CharCNNZhang(object):
         print("CharCNNZhang model built: ")
         self.model.summary()
 
-    def train(self, training_char_inputs, training_word_inputs,
-              validation_char_inputs, validation_word_inputs,
-              training_labels, validation_labels,
+    def train(self, training_char_inputs, training_word_inputs, training_labels,
+              validation_char_inputs, validation_word_inputs, validation_labels,
               epochs, batch_size, checkpoint_every=100):
         """
         Training function
